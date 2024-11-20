@@ -4,6 +4,7 @@
 #include "Weapon\Weapon.h"
 #include "Kismet\GameplayStatics.h"
 #include "Components\AudioComponent.h"
+#include "Noise\BaseNoiseEmitterComponent.h"
 
 // Sets default values
 AWeapon::AWeapon()
@@ -23,6 +24,8 @@ AWeapon::AWeapon()
 
 	PrimaryActorTick.bCanEverTick = true;
 	SetActorTickEnabled(true);
+
+	NoiseEmitter = CreateDefaultSubobject<UBaseNoiseEmitterComponent>(TEXT("Weapon Noise Emitter"));
 }
 
 // Called when the game starts or when spawned

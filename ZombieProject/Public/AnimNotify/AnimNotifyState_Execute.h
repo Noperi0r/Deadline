@@ -16,6 +16,7 @@ class ZOMBIEPROJECT_API UAnimNotifyState_Execute : public UAnimNotifyState
 private:
 	class AZombiePlayer* Player;
 	class AZombieBase* ExecutedZombie;
+	FRotator PrevCamRotation;
 	
 protected:
 	virtual void NotifyBegin(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, float TotalDuration, const FAnimNotifyEventReference& EventReference) override;

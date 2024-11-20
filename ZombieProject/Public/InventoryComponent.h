@@ -116,6 +116,11 @@ public:
 		Arr.Emplace(Weapon);
 	}
 
+	void RemoveAt(int8 Idx)
+	{
+		Arr.RemoveAt(Idx);
+	}
+
 	AWeapon* Pop()
 	{
 		return Arr.Pop();
@@ -146,7 +151,7 @@ struct FInventoryData
 	FInventoryData() : NumBullets(0), MeleeWeaponCode(0), RangeWeaponCode(0), ThrowWeaponCode(0)
 	{
 		Weapon_Melee.Init(nullptr, 1);
-		Weapon_Range.Init(nullptr, 2);
+		Weapon_Range.Init(nullptr, 0);
 		Weapon_Throwing.Init(FWeapon2DArray(), 2);
 		
 		for (int i = 1; i < (int)EThrowingTag::LAST; ++i)

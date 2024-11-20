@@ -24,6 +24,9 @@ protected:
 	//UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Mesh", meta = (AllowProtectedAccess = "true"))
 	//class UStaticMeshComponent* ThrowingMesh;
 
+	UPROPERTY(VisibleDefaultsOnly, BlueprintReadOnly, meta = (AllowProtectedAccess = true))
+	class UGeometryCollectionComponent* ThrowingMesh;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation", meta = (AllowProtectedAccess = "true"))
 	class UAnimMontage* Montage_Trigger;
 	UPROPERTY(VisibleDefaultsOnly, BlueprintReadOnly, Category = "Components", meta = (AllowProtectedAccess = "true"))
@@ -41,11 +44,21 @@ protected:
 	UPROPERTY()
 	bool bReadyForThrow;
 
-	UPROPERTY(VisibleDefaultsOnly, BlueprintReadOnly, meta = (AllowProtectedAccess = true))
-	class UGeometryCollectionComponent* ThrowingMesh;
-
 	UPROPERTY()
 	bool bHit;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Noise", meta = (AllowProtectedAccess = true))
+	TSubclassOf<AActor> NoiseDisplayRef;
+	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Noise", meta = (AllowProtectedAccess = true))
+	AActor* NoiseDisplayer;
+
+	UPROPERTY()
+	class UMaterialInstanceDynamic* NoiseMatInst;
+
+	FTimerHandle NoiseDisplayTimer;
+	float NoiseColAlpha;
+	float OriginalNoiseColAlpha;
 
 public:
 	virtual EThrowingTag GetThrowingTag();
@@ -66,6 +79,8 @@ public:
 
 	virtual void OnAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted) override;
 
+	virtual void MakeWeaponNoise(const FVector& Location) override;
+
 private:
 	UFUNCTION()
 	void Launch();
@@ -75,9 +90,20 @@ private:
 
 	UFUNCTION()
 	void UpdateSpline(const struct FPredictProjectilePathResult& PathResult);
+
+	// Deprecated
 	UFUNCTION()
 	void OnHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
 
 	UFUNCTION()
+	void ChaosBreakHandler(const FChaosBreakEvent& BreakEvent);
+
+	UFUNCTION()
 	virtual void OnTriggerMontageEnded(UAnimMontage* Montage, bool bInterrupted);
+
+	UFUNCTION()
+	void SpawnNoiseSphere();
+
+	UFUNCTION()
+	void UpdateNoiseSphereAlpha(AActor* DisplayObj);
 };

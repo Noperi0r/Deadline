@@ -15,6 +15,8 @@ class ZOMBIEPROJECT_API UAnimNotifyState_Parkour : public UAnimNotifyState
 	GENERATED_BODY()
 private:
 	class AZombiePlayer* Player;
+	FRotator PlayerCamForward;
+	FVector PrevCamLocation;
 protected:
 	virtual void NotifyBegin(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, float TotalDuration, const FAnimNotifyEventReference& EventReference) override;
 	virtual void NotifyTick(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, float FrameDeltaTime, const FAnimNotifyEventReference& EventReference) override;

@@ -82,6 +82,10 @@ void AWeaponGunBase::ConvertPlayerController()
 	Controller = Cast<AZombiePlayerController>(Player->GetController());
 }
 
+void AWeaponGunBase::MakeWeaponNoise(const FVector& Location)
+{
+}
+
 void AWeaponGunBase::Attack()
 {
 	if (Player->bIsAiming)

@@ -39,7 +39,7 @@ public:
 	virtual bool CanAttack() override;
 	virtual void PerformTrace() override;
 	virtual void ConvertPlayerController() override;
-
+	virtual void MakeWeaponNoise(const FVector& Location) override;
 
 public:
 	bool bCollisionOn;

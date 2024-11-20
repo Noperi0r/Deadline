@@ -50,14 +50,19 @@ const FString& UInventoryComponent::GetSerializedData() {
 
 AWeapon* UInventoryComponent::Inventory_GetWeapon(const int32 WeaponIndex, const int32 WeaponSlot) const 
 {
+
 	switch (WeaponIndex)
 	{
 		case MELEEINDEX:
+			if (WeaponSlot > Data.Weapon_Melee.Num() - 1) return nullptr;
 			return Data.Weapon_Melee[WeaponSlot];
 		case RANGEINDEX:
+			if (WeaponSlot > Data.Weapon_Range.Num() - 1) return nullptr;
 			return Data.Weapon_Range[WeaponSlot];
 		case THROWINDEX:
-			return Data.Weapon_Throwing[WeaponSlot].Last();
+			if (WeaponSlot > Data.Weapon_Throwing[WeaponSlot].Num() - 1) return nullptr;
+			UE_LOG(LogTemp, Warning, TEXT("WeaponName: %s"), *(Data.Weapon_Throwing[WeaponSlot].Last()->GetActorNameOrLabel()));
+			return Data.Weapon_Throwing[WeaponSlot][0];
 	}
 	UE_LOG(LogTemp, Error, TEXT("Inventory_GetWeapon ERROR: Invalid Weapon WeaponIndex"));
 	return nullptr;
@@ -103,10 +108,10 @@ void UInventoryComponent::Inventory_ClearWeapon(const int32 WeaponIndex, const i
 		Data.Weapon_Range[WeaponSlot] = nullptr;
 		break;
 	case THROWINDEX:
-		Data.Weapon_Throwing[WeaponSlot].Pop();
+		//Data.Weapon_Throwing[WeaponSlot].Pop();
+		Data.Weapon_Throwing[WeaponSlot].RemoveAt(0);
 		break;
 	}
-	//Data.Weapons[WeaponSlot] = nullptr; 
 }
 
 int32 UInventoryComponent::CheckThrowingNum(EThrowingTag ThrowingType) const
@@ -163,13 +168,15 @@ void UInventoryComponent::SaveData(UPARAM(ref) FSaveData& SaveData)
 	SaveData.MeleeNums = Data.Weapon_Melee.Num();
 	for (int i = 0; i < SaveData.MeleeNums; ++i)
 	{
-		 SaveData.MeleeCodes.Add(Data.Weapon_Melee[i]->ItemCode);
+		if(Data.Weapon_Melee[i])
+			SaveData.MeleeCodes.Add(Data.Weapon_Melee[i]->ItemCode);
 	}
 	// Range
 	SaveData.RangeNums = Data.Weapon_Range.Num();
 	for (int i = 0; i < SaveData.RangeNums; ++i)
 	{
-		SaveData.RangeCodes.Add(Data.Weapon_Range[i]->ItemCode);
+		if(Data.Weapon_Range[i])
+			SaveData.RangeCodes.Add(Data.Weapon_Range[i]->ItemCode);
 	}
 	SaveData.NumBullets = Data.NumBullets;
 
@@ -216,6 +223,9 @@ void UInventoryComponent::LoadData(const FSaveData& SaveData)
 	// Melee
 	for (int i = 0; i < SaveData.MeleeNums; ++i)
 	{
+		if(SaveData.MeleeCodes.IsEmpty())
+			return;
+		
 		FString Num = FString::FromInt(SaveData.MeleeCodes[i]);
 		Row = WeaponCodeDTable->FindRow<FWeaponCodeDataTableRow>(FName(Num), FString("Item none found"));
 		
@@ -233,6 +243,9 @@ void UInventoryComponent::LoadData(const FSaveData& SaveData)
 	// Range
 	for (int i = 0; i < SaveData.RangeNums; ++i)
 	{
+		if(SaveData.RangeCodes.IsEmpty())
+			return;
+		
 		FString Num = FString::FromInt(SaveData.RangeCodes[i]);
 		Row = WeaponCodeDTable->FindRow<FWeaponCodeDataTableRow>(FName(Num), FString("Item none found"));
 		
@@ -278,13 +291,26 @@ void UInventoryComponent::LoadData(const FSaveData& SaveData)
 	}
 
 	// Player Properties
-	Player->Hp = SaveData.Hp;
-	Player->Stamina = SaveData.Stamina;
+	// Player->Hp = SaveData.Hp;
+	// Player->Stamina = SaveData.Stamina;
 	Player->CurrentPlayerMode = SaveData.CurrentPlayerMode;
 
 	Player->RecentMeleeWeaponIndex = SaveData.RecentMeleeIdx;
 	Player->RecentRangeWeaponIndex = SaveData.RecentRangeIdx;
 	Player->RecentThrowingWeaponIndex = SaveData.RecentThrowingIdx;
+
+	switch (Player->CurrentPlayerMode)
+	{
+		case EPlayerMode::MeleeMode:
+			Player->WeaponChange(MELEEINDEX, Player->RecentMeleeWeaponIndex);
+			break;
+		case EPlayerMode::ThrowMode:
+			Player->WeaponChange(THROWINDEX, Player->RecentThrowingWeaponIndex);
+			break;
+		case EPlayerMode::RangeMode:
+			Player->WeaponChange(RANGEINDEX, Player->RecentRangeWeaponIndex);
+			break;
+	}
 
 	// switch (Player->CurrentPlayerMode)
 	// {

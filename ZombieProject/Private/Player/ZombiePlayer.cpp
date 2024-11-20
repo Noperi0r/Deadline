@@ -12,6 +12,7 @@
 #include "Engine/DamageEvents.h"
 #include "Player/ZombiePlayerController.h"
 
+
 #define _MESH_ACTIVATE_
 
 // Sets default values
@@ -76,16 +77,25 @@ AZombiePlayer::AZombiePlayer()
 	Camera->bUsePawnControlRotation = true;
 	//Camera->SetupAttachment(GetCapsuleComponent());
 	Camera->SetupAttachment(GetMesh());
-	Camera->AttachToComponent(GetMesh(),FAttachmentTransformRules::KeepWorldTransform,"head");
+	Camera->SetupAttachment(GetMesh(),"head");
+	//Camera->AttachToComponent(GetMesh(),FAttachmentTransformRules::KeepWorldTransform,"head");
 	//Camera->AddRelativeLocation(FVector(-39.6f, 1.75f, 64.0f));
 
 	ThrowPathSpline = CreateDefaultSubobject<USplineComponent>(TEXT("Throw Path Spline"));
 	ThrowEndSphere = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Throw Path Mesh"));
 
+	// Setup Knife 
+	KnifeMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Knife Mesh"));
+	KnifeMesh->SetupAttachment(GetMesh(), FName("weaponsocket_r"));
+	KnifeMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	KnifeMesh->bCastDynamicShadow = false;
+	KnifeMesh->CastShadow = false;
+	KnifeMesh->SetOnlyOwnerSee(true);
+	
 	// Setup Throw Location
 	ThrowLocation = CreateDefaultSubobject<USceneComponent>(TEXT("Throw Location"));
 	ThrowLocation->SetupAttachment(Camera);
-
+	
 	// Setup Mesh
 	GetMesh()->SetupAttachment(GetRootComponent());
     GetMesh()->bCastDynamicShadow = false;
@@ -187,10 +197,12 @@ void AZombiePlayer::BeginPlay()
 	check(PlayerAnimInstance);
 
 	// Default Player mode
-	WeaponChange(MELEEINDEX, RecentMeleeWeaponIndex); // Default when game starts
+	CurrentPlayerMode = EPlayerMode::None;
+	//WeaponChange(THROWINDEX, RecentThrowingWeaponIndex); // Default when game starts
 
 	UE_LOG(LogTemp, Warning, TEXT("Currrent Level Name: %s"), *GetWorld()->GetName());
 
+	KnifeMesh->SetHiddenInGame(true);
 }
 
 // Called every frame
@@ -200,9 +212,6 @@ void AZombiePlayer::Tick(float DeltaTime)
 	if (CanAct()) {
 		// Line trace for general case
 		LineTraceFromCamera();
-		
-		// Line trace for Parkour
-		//LineTraceFromGround();
 	}
 	RecoverStamina();
 
@@ -226,9 +235,18 @@ void AZombiePlayer::RecoverStamina() {
 
 void AZombiePlayer::WaitToRecoverStamina() {
 	FTimerHandle TempTimer;
+
+	// Check if the current world or player is disposed (restart or change level)
+	if(this == nullptr || GetWorld() == nullptr)
+		return;
+	
 	if (GetWorld()->GetTimerManager().GetTimerRemaining(TempTimer) <= 0) {
+		if(this == nullptr || GetWorld() == nullptr)
+			return;
 		GetWorld()->GetTimerManager().SetTimer(TempTimer, [&]()
 			{
+				if(this == nullptr || GetWorld() == nullptr)
+					return;
 				bCanRecoverStamina = true;
 				GetWorld()->GetTimerManager().ClearTimer(TempTimer);
 			}, IntervalToRecoverStamina, false);
@@ -253,7 +271,7 @@ bool AZombiePlayer::LineTrace(const FVector Start, const FVector End, FHitResult
 		ObjectTypesArray, false, IgnoreActors, DebueTrace, HitResult, true);
 }
 
-void AZombiePlayer::LineTraceFromCamera()
+void AZombiePlayer::LineTraceFromCamera_Implementation()
 {
 	// Line trace from the camera
 	FHitResult Hit;
@@ -286,7 +304,7 @@ void AZombiePlayer::LineTraceFromCamera()
 					&& LocationDist <= ExecutableDistance
 					&& degree <= ExecutableDegree);
 			
-				UE_LOG(LogTemp, Warning, TEXT("Diff: %f, Dist: %f, Degree : %f"), BoneDist, LocationDist, degree);
+				//UE_LOG(LogTemp, Warning, TEXT("Diff: %f, Dist: %f, Degree : %f"), BoneDist, LocationDist, degree);
 				FColor ExecutionColor = FColor::Red;
 				if(bCanExecute)
 				{
@@ -310,91 +328,6 @@ void AZombiePlayer::LineTraceFromCamera()
 			}
 		}
 	}
-}
-
-void AZombiePlayer::LineTraceFromGround()
-{
-	/*FHitResult CamVerticalRay;
-	FVector CamRayStart = Camera->GetComponentLocation();
-	FVector CamRayEnd = CamRayStart - FVector(0,0,PelvisHeightFromCamera);
-	if(!LineTrace(CamRayStart, CamRayEnd,CamVerticalRay, {3}, {this}, true)) return;*/
-	/*FHitResult HeightHit;
-	for(int i=0; i<3; i++){
-		FVector StartLocation = GetActorLocation();
-		StartLocation.Z += i*30;
-		FVector EndLocation = StartLocation + UKismetMathLibrary::GetForwardVector(GetActorRotation()) * ParkourDistance;
-		if(UKismetSystemLibrary::SphereTraceSingle(_getUObject(),StartLocation,EndLocation,15,ETraceTypeQuery::TraceTypeQuery1,
-			false, {}, EDrawDebugTrace::ForDuration, HeightHit, true))
-		{
-			break;
-		}
-	}
-	FHitResult WidthHit;
-	for(int i=0; i<5; i++){
-		FVector StartLocation = HeightHit.Location;
-		StartLocation.Z += 100;
-		StartLocation += i * 50 * UKismetMathLibrary::GetForwardVector(GetActorRotation()) * ParkourDistance;
-		FVector EndLocation = StartLocation - FVector(0,0,999999);
-		if(UKismetSystemLibrary::SphereTraceSingle(_getUObject(),StartLocation,EndLocation,15,ETraceTypeQuery::TraceTypeQuery1,
-			false, {}, EDrawDebugTrace::ForDuration, WidthHit, true))
-		{
-			break;
-		}
-	}*/
-	
-	// Line trace from the pelvis of character
-	/*FHitResult Hit;
-	const FVector GroundRayStart = Camera->GetComponentLocation() - FVector(0,0,CameraHeightFromGround);
-	FVector GroundRayEnd = GroundRayStart + FVector(GetActorForwardVector().X,GetActorForwardVector().Y,0) * ParkourDistance;
-	if(LineTrace(GroundRayStart,GroundRayEnd,Hit, {3},{},true))
-	{		
-		FVector Origin, Size;
-		Hit.GetActor()->GetActorBounds(false,Origin,Size);
-		//UE_LOG(LogTemp, Warning, TEXT("Object size: x=%f y=%f z=%f"), Size.X,Size.Y,Size.Z);
-
-		if(Size.Z > 60) // Hardcoded
-		{
-			return;
-		}
-		
-		ParkourActor = Hit.GetActor();
-		ParkourComp = Hit.GetComponent();
-		SetActorHighlight(ParkourActor, ParkourComp, Hit);
-		
-		bCanParkour = true;
-		FVector Front = Origin + (ParkourActor->GetActorForwardVector() * (Size.X+20));
-		FVector Back = Origin - (ParkourActor->GetActorForwardVector() * (Size.X+20));
-		FVector Up = Origin + GetActorUpVector() * Size.Z;
-		FVector PlayerLocation = GetActorLocation();
-		
-		ParkourCenterLocation = Up;
-		if((Front-PlayerLocation).Size() < (Back-PlayerLocation).Size())
-		{
-			ParkourStartLocation = Front;
-			ParkourEndLocation = Back;
-		}
-		else
-		{
-			ParkourStartLocation = Back;
-			ParkourEndLocation = Front;
-		}
-		
-		//DrawDebugSphere(GetWorld(),Front,10,12,FColor::Red);
-		DrawDebugSphere(GetWorld(),Up,10,12,FColor::Green);
-		DrawDebugSphere(GetWorld(),ParkourStartLocation,10,12,FColor::Blue);
-		DrawDebugSphere(GetWorld(),ParkourEndLocation,10,12,FColor::Red);
-	}
-	else
-	{
-		if (ParkourComp != nullptr) {
-        	ParkourComp->SetRenderCustomDepth(false);
-
-        	ParkourComp = nullptr;
-        	ParkourActor = nullptr;
-
-			bCanParkour = false;
-        }
-	}*/
 }
 
 void AZombiePlayer::SetActorHighlight(const FHitResult& Hit) {
@@ -493,16 +426,25 @@ bool AZombiePlayer::Hit(AActor* DamageCauser, int32 Damage) {
 
 bool AZombiePlayer::Death() {
 	// Play Death anim
+	UE_LOG(LogTemp, Warning, TEXT("Player Death Invoked"));
+	// Check if the current world or player is disposed (restart or change level)
+	if(this == nullptr || GetWorld() == nullptr)
+		return false;
+
 	bOnDead = true;
 	FTimerHandle Timer;
-	UE_LOG(LogTemp, Warning, TEXT("Player Death Invoked"));
 	if (GetWorld()->GetTimerManager().GetTimerRemaining(Timer) <= 0) {
+		if(this == nullptr || GetWorld() == nullptr)
+			return false;
 		GetWorld()->GetTimerManager().SetTimer(Timer, [&]()
 			{
-				bOnDead = false;	
-				UGameplayStatics::OpenLevel(this, FName(*GetWorld()->GetName()), false);
+			if(this == nullptr || GetWorld() == nullptr)
+				return;
+				UE_LOG(LogTemp, Warning, TEXT("Player Death Timer End Invoked"));
+				OnPlayerDead.Broadcast();
+				// UGameplayStatics::OpenLevel(this, FName(*GetWorld()->GetName()), false);
 				GetWorld()->GetTimerManager().ClearTimer(Timer);
-			}, 0.5f, false);
+			}, 0.1f, false);
 	}
 	return true;
 }
@@ -533,6 +475,26 @@ void AZombiePlayer::WeaponChange(const int32 Type, const int32 WeaponIndex)
 		return;
 	}
 
+	WeaponToSwap = PlayerInventory->Inventory_GetWeapon(Type, WeaponIndex);
+
+	if (!WeaponToSwap)
+	{
+		UE_LOG(LogTemp, Error, TEXT("No weapon in inventory. RETURNED"));
+
+		if (CurrentPlayerMode == EPlayerMode::MeleeMode)
+			return;
+		else if (CurrentPlayerMode == EPlayerMode::ThrowMode)
+		{
+			CurrentPlayerMode = EPlayerMode::None;
+			ResetPlayerVariables();
+		}
+
+		if(bThrowingLaunched)
+			bThrowingLaunched = false;
+
+		return;
+	}
+
 	switch (Type)
 	{
 		case MELEEINDEX:
@@ -546,8 +508,6 @@ void AZombiePlayer::WeaponChange(const int32 Type, const int32 WeaponIndex)
 			break;
 	}
 
-	WeaponToSwap = PlayerInventory->Inventory_GetWeapon(Type, WeaponIndex);
-
 	if (CurrentWeapon && WeaponToSwap)
 	{
 		PlayerAnimInstance->Montage_Play(CurrentWeapon->Montage_PutBackWeapon);
@@ -559,14 +519,16 @@ void AZombiePlayer::WeaponChange(const int32 Type, const int32 WeaponIndex)
 	{
 		EquipWeapon();
 	}
-
 }
 
 void AZombiePlayer::DisarmWeapon(UAnimMontage* Montage, bool bInterrupted)
 {
 	if (CurrentWeapon == nullptr) return;
 
-	SetActiveWeapon(CurrentWeapon, false);
+	//AWeaponThrowBase* Throwing = Cast<AWeaponThrowBase>(CurrentWeapon);
+	if (!bThrowingLaunched)
+		SetActiveWeapon(CurrentWeapon, false);
+
 	AssignWeaponToPlayer(nullptr);
 
 	EquipWeapon();
@@ -604,6 +566,8 @@ void AZombiePlayer::SetNextWeaponIndex(const int32 Type)
 
 void AZombiePlayer::EquipWeapon()
 {
+	bThrowingLaunched = false;
+
 	if (!WeaponToSwap) return;
 	else
 	{
@@ -627,6 +591,19 @@ void AZombiePlayer::EquipWeapon()
 	}
 }
 
+void AZombiePlayer::PutKnifeOn()
+{
+	SetActiveWeapon(CurrentWeapon, false);
+	KnifeMesh->SetHiddenInGame(false);
+}
+
+void AZombiePlayer::PutKnifeOff()
+{
+	KnifeMesh->SetHiddenInGame(true);
+
+	WeaponToSwap = CurrentWeapon;
+	EquipWeapon();
+}
 
 void AZombiePlayer::LootWeapon(AWeapon* Weapon) // Weapon in Parameter means the weapon you looted just now
 {
@@ -683,6 +660,10 @@ void AZombiePlayer::LootWeapon(AWeapon* Weapon) // Weapon in Parameter means the
 			}
 
 			PlayerInventory->Inventory_SetWeapon(THROWINDEX, Weapon, WeaponSlot);
+			
+			if(PlayerInventory->bNoThrowings)
+				PlayerInventory->bNoThrowings = false;
+
 			break;
 	}
 	SetActiveWeapon(Weapon, false);
@@ -737,16 +718,16 @@ void AZombiePlayer::Attack()
 	{
 		switch (CurrentPlayerMode) // Condition for immediate return
 		{
-		case EPlayerMode::MeleeMode:
-			if (SwingCount >= 4)
-				return;
-			else
-				++SwingCount;
-			break;
-		case EPlayerMode::RangeMode:
-			break;
-		case EPlayerMode::ThrowMode:
-			break;
+			case EPlayerMode::MeleeMode:
+				if (SwingCount >= 4)
+					return;
+				else
+					++SwingCount;
+				break;
+			case EPlayerMode::RangeMode:
+				break;
+			case EPlayerMode::ThrowMode:
+				break;
 		}
 		CurrentWeapon->Attack();
 		AZombiePlayerController* ZombiePlayerController = Cast<AZombiePlayerController>(Controller);
@@ -783,4 +764,3 @@ void AZombiePlayer::OnSwapProcessEnded(UAnimMontage* Montage, bool bInterrupted)
 
 	if (OnWeaponChanged.IsBound()) OnWeaponChanged.Broadcast();
 }
-

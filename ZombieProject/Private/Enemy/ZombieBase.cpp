@@ -12,7 +12,7 @@ AZombieBase::AZombieBase()
 	PrimaryActorTick.bCanEverTick = true;
 	Threshold = 100.0f;
 	TrunThreshold = 50.0f;
-	QTECount = 20;
+	QTECount = 19;
 
 	AZombieBase::OnDead.AddDynamic(this, &AZombieBase::DebugDele);
 }

@@ -6,10 +6,14 @@
 #include "Kismet\KismetMathLibrary.h"
 #include "Kismet\GameplayStatics.h"
 #include "Components\SplineComponent.h"
-#include "Player/ZombiePlayerController.h"
+#include "Components\BoxComponent.h"
+#include "Player\ZombiePlayerController.h"
 #include "InventoryComponent.h"
 #include "Components\AudioComponent.h"
 #include "GeometryCollection\GeometryCollectionComponent.h"
+#include "TimerManager.h"
+#include "DrawDebugHelpers.h"
+#include "Materials\MaterialInstanceDynamic.h"
 
 AWeaponThrowBase::AWeaponThrowBase()
 {
@@ -21,9 +25,9 @@ AWeaponThrowBase::AWeaponThrowBase()
 	ThrowingMesh->bCastDynamicShadow = false;
 	ThrowingMesh->CastShadow = false;
 	ThrowingMesh->SetSimulatePhysics(false);
+	ThrowingMesh->SetNotifyBreaks(true);
 
 	AttackSound->SetupAttachment(ThrowingMesh);
-
 
 	Montage_Trigger = CreateDefaultSubobject<UAnimMontage>(TEXT("Montage Trigger"));
 
@@ -33,6 +37,8 @@ AWeaponThrowBase::AWeaponThrowBase()
 
 	ThrowLoudness = 100.0f;
 	ThrowLoudnessRange = 500.0f;
+
+	NoiseEmitter = CreateDefaultSubobject<UBaseNoiseEmitterComponent>(TEXT("Noise Emitter"));
 }
 
 
@@ -47,16 +53,23 @@ void AWeaponThrowBase::Tick(float DeltaTime)
 
 	if (!Player) return;
 
-	/*if (Player->bDoingAttack)
+	if (Player->bDoingAttack)
 	{
 		PerformTrace();
-	}*/
+		if (NoiseDisplayer->IsHidden())
+			NoiseDisplayer->SetActorHiddenInGame(false);
+	}
+	else
+	{
+		if(!NoiseDisplayer->IsHidden())
+			NoiseDisplayer->SetActorHiddenInGame(true);
+	}
 
-	if (bReadyForThrow)
+	if (Player->bReadyForThrow)
 	{
 		if (Player->CanPlayerThrow())
 		{
-			bReadyForThrow = false;
+			Player->bReadyForThrow = false; // bReadyForThrow = false;
 			Player->SetPlayerThrowFlag(false);
 			Launch();
 		}
@@ -66,6 +79,11 @@ void AWeaponThrowBase::Tick(float DeltaTime)
 void AWeaponThrowBase::BeginPlay()
 {
 	Super::BeginPlay();
+
+	//ThrowingMesh->OnComponentHit.AddDynamic(this, &AWeaponThrowBase::OnHit);
+	ThrowingMesh->OnChaosBreakEvent.AddDynamic(this, &AWeaponThrowBase::ChaosBreakHandler);
+
+	SpawnNoiseSphere();
 }
 
 void AWeaponThrowBase::Attack()
@@ -75,14 +93,17 @@ void AWeaponThrowBase::Attack()
 	Player->SetPlayerThrowFlag(false);
 
 	Player->bDoingAttack = true;  // bDoingAttack is activated during montage is on
-	Player->bCannotAction = true;
-	
-	Player->PlayerAnimInstance->Montage_Play(Montage_Trigger);
-	if (!Player->PlayerAnimInstance->WeaponActionEndDelegate.IsBound())
-	{
-		Player->PlayerAnimInstance->WeaponActionEndDelegate.BindUFunction(this, FName("OnTriggerMontageEnded"));
-		Player->PlayerAnimInstance->Montage_SetEndDelegate(Player->PlayerAnimInstance->WeaponActionEndDelegate, Montage_Trigger);
-	}
+	//Player->bCannotAction = true;
+
+	// TEMP 24.10.07 TODO: Uncomment this
+	//OnTriggerMontageEnded(nullptr, false);
+	//Player->PlayerAnimInstance->Montage_Play(Montage_Trigger);
+	//if (!Player->PlayerAnimInstance->WeaponActionEndDelegate.IsBound())
+	//{
+	//	Player->PlayerAnimInstance->WeaponActionEndDelegate.BindUFunction(this, FName("OnTriggerMontageEnded"));
+	//	Player->PlayerAnimInstance->Montage_SetEndDelegate(Player->PlayerAnimInstance->WeaponActionEndDelegate, Montage_Trigger);
+	//}
+	Player->bReadyForThrow = true;
 }
 
 void AWeaponThrowBase::Launch()
@@ -93,21 +114,21 @@ void AWeaponThrowBase::Launch()
 	Player->bDoingAttack = false;
 	Player->SetPlayerThrowFlag(false);
 
-	ThrowingMesh->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
-	ThrowingMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	//ThrowingMesh->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
 	ThrowingMesh->SetSimulatePhysics(true); // Enable free fall
-	
+	ThrowingMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+
 	// Set projectile state to be launched
 	const FVector ThrowLocation = Player->ThrowLocation->GetComponentLocation(); // Needs to be called before detachfromcomponent but why
 	//SetActorLocation(ThrowLocation);
 	
 	ThrowingMesh->SetWorldLocation(ThrowLocation);
+	//DrawDebugSphere(GetWorld(), ThrowingMesh->GetComponentLocation(), 10, 16, FColor::Blue, true, 3.0f);
 
 	const FVector ForwardVec = UKismetMathLibrary::GetForwardVector(Player->GetControlRotation());
 
 	ThrowingMesh->SetPhysicsLinearVelocity(FVector::ZeroVector);
 	ThrowingMesh->AddImpulse(ForwardVec * Player->ThrowingForce, NAME_None, true);
-	ThrowingMesh->OnComponentHit.AddDynamic(this, &AWeaponThrowBase::OnHit);
 
 	// Clear Throw Spline, Meshes
 	for (USplineMeshComponent* Element : (Player->ThrowSplineMeshes))
@@ -120,6 +141,7 @@ void AWeaponThrowBase::Launch()
 
 	// Play montage
 	Player->PlayerAnimInstance->Montage_Play(Montage_Attack);
+
 	if (!Player->PlayerAnimInstance->AttackEndDelegate.IsBound())
 	{
 		Player->PlayerAnimInstance->AttackEndDelegate.BindUFunction(this, FName("OnAttackMontageEnded"));
@@ -129,34 +151,34 @@ void AWeaponThrowBase::Launch()
 
 void AWeaponThrowBase::UpdatePlayer()
 {
-	//int8 Num_CurrentThrowing = Player->PlayerInventory->GetThrowingNum(ThrowingTag) - 1;
-	//Num_CurrentThrowing = Num_CurrentThrowing > 0 ? Num_CurrentThrowing : 0;
-
-	//Player->PlayerInventory->SetThrowingNum(ThrowingTag, Num_CurrentThrowing);
-	
 	Player->PlayerInventory->Inventory_ClearWeapon(THROWINDEX, (int32)ThrowingTag - 1);
+	Player->bThrowingLaunched = true;
 
 	int32 Num =  Player->PlayerInventory->CheckThrowingNum(ThrowingTag);
 	if (Num <= 0)
 	{
 		Player->SetNextWeaponIndex(THROWINDEX);
 
-		if (!Player->PlayerInventory->bNoThrowings)
+		if (!Player->PlayerInventory->bNoThrowings) // Has throwings of other type compared to the current one
 			Player->WeaponChange(THROWINDEX, Player->RecentThrowingWeaponIndex);
-		else
+		else // Has no throwings at all
 			Player->WeaponChange(MELEEINDEX, Player->RecentMeleeWeaponIndex);
+
 	}
-	else
+	else // Has more throwings with the same type as current one
 	{
 		Player->WeaponChange(THROWINDEX, Player->RecentThrowingWeaponIndex);
 	}
+	Player = nullptr; 
 
-	Player = nullptr;
+	FTimerHandle TimerHandle;
+	GetWorldTimerManager().SetTimer(TimerHandle, FTimerDelegate::CreateLambda([this]() {Destroy(); UE_LOG(LogTemp, Warning, TEXT("Lambda Called")) }), 5.0f, false);
 }
 
 bool AWeaponThrowBase::CanAttack()
 {
 	// CHANGE 
+	if (!Player) return false;
 	return !Player->bDoingAttack;
 }
 
@@ -177,7 +199,7 @@ void AWeaponThrowBase::PerformTrace()
 	PathParams.LaunchVelocity = Player->ThrowingForce * UKismetMathLibrary::GetForwardVector(Player->GetControlRotation());
 	PathParams.bTraceWithCollision = true;
 	PathParams.ProjectileRadius = 5.0f;
-	PathParams.MaxSimTime = 1.0f;
+	PathParams.MaxSimTime = 10.0f;
 	PathParams.bTraceWithChannel = true;
 	PathParams.TraceChannel = ECollisionChannel::ECC_WorldStatic;
 	PathParams.SimFrequency = 30.0f;
@@ -199,7 +221,54 @@ void AWeaponThrowBase::OnTriggerMontageEnded(UAnimMontage* Montage, bool bInterr
 
 		// Launch projectile if player did button up during montage
 		if (Player->CanPlayerThrow()) Launch();
-		else bReadyForThrow = true; // Condition for the situation where montage is ended but player is holding mouse
+		else Player->bReadyForThrow = true; //bReadyForThrow = true; // Condition for the situation where montage is ended but player is holding mouse
+	}
+}
+
+void AWeaponThrowBase::SpawnNoiseSphere()
+{
+	NoiseDisplayer = GetWorld()->SpawnActor(NoiseDisplayRef);
+	UStaticMeshComponent* NoiseMesh = Cast<UStaticMeshComponent>(NoiseDisplayer->GetRootComponent());
+	UMaterialInterface* NoiseMat = NoiseMesh->GetMaterial(0);
+	
+	checkf(NoiseMat, TEXT("No material in noisedisplayer"));
+	NoiseMatInst = UMaterialInstanceDynamic::Create(NoiseMat, this);
+	NoiseMesh->SetMaterial(0, NoiseMatInst);
+
+	FHashedMaterialParameterInfo ParaInfo;
+	ParaInfo.Name = FScriptName(TEXT("Alpha"));
+	NoiseMatInst->GetScalarParameterValue(ParaInfo, NoiseColAlpha);
+
+	OriginalNoiseColAlpha = NoiseColAlpha;
+
+	float ApproxSphereRadius = 100.0f / 2.0f;
+	float TargetScale = WeaponLoudnessRange / ApproxSphereRadius;
+	NoiseMesh->SetWorldScale3D(FVector(TargetScale, TargetScale, TargetScale));
+
+	NoiseDisplayer->AttachToActor(this, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+	NoiseDisplayer->SetActorHiddenInGame(true);
+
+	// After chaos break 
+	//NoiseMesh->SetWorldLocation(Pos);
+	//GetWorldTimerManager().SetTimer(NoiseDisplayTimer,
+	//								FTimerDelegate::CreateUObject(this, &AWeaponThrowBase::UpdateNoiseSphereAlpha, NoiseDisplayer),
+	//								GetWorld()->GetDeltaSeconds(), true);
+}
+
+void AWeaponThrowBase::UpdateNoiseSphereAlpha(AActor* DisplayObj)
+{
+	if (NoiseDisplayer->IsHidden()) NoiseDisplayer->SetActorHiddenInGame(false);
+
+	//UE_LOG(LogTemp, Warning, TEXT(" ALPH %f"), NoiseColAlpha);
+	UE_LOG(LogTemp, Warning, TEXT(" WHAT %d"), NoiseDisplayer->IsHidden());
+
+	NoiseColAlpha = FMath::Lerp(NoiseColAlpha, 0, 0.1f);
+	NoiseMatInst->SetScalarParameterValue(FName("Alpha"), NoiseColAlpha);
+
+	if (NoiseColAlpha < 0.01f)
+	{
+		GetWorldTimerManager().ClearTimer(NoiseDisplayTimer);
+		DisplayObj->Destroy();
 	}
 }
 
@@ -209,9 +278,31 @@ void AWeaponThrowBase::OnAttackMontageEnded(UAnimMontage* Montage, bool bInterru
 	UpdatePlayer();
 }
 
+void AWeaponThrowBase::MakeWeaponNoise(const FVector& Location)
+{
+	NoiseEmitter->Execute_MakeEnvironmentNoise(NoiseEmitter, nullptr, WeaponLoudness, Location, WeaponLoudnessRange);
+	//DrawDebugSphere(GetWorld(), Location, WeaponLoudnessRange, 12, FColor::Green, false, 1.0f);
+}
+
 void AWeaponThrowBase::SubAction()
 {
-	UE_LOG(LogTemp, Warning, TEXT("SubAction Throw Working"));
+	if (bHit || !Player) return;
+	
+	if (Player->bReadyForThrow)
+	{
+		Player->bDoingAttack = false;
+		Player->bReadyForThrow = false;
+		Player->bCanThrow = false;
+
+		for (USplineMeshComponent* Element : (Player->ThrowSplineMeshes))
+		{
+			Element->DestroyComponent();
+		}
+		Player->ThrowSplineMeshes.Empty();
+		Player->ThrowPathSpline->ClearSplinePoints(true);
+		Player->ThrowEndSphere->SetVisibility(false);
+	}
+	//Player->PlayerAnimInstance->Montage_Stop(0.3f);
 }
 
 void AWeaponThrowBase::ConvertPlayerController()
@@ -237,35 +328,55 @@ void AWeaponThrowBase::UpdateSpline(const FPredictProjectilePathResult& PathResu
 		{
 			Player->ThrowPathSpline->SetSplinePointType(Paths.Num() - 1, ESplinePointType::CurveClamped, true);
 			Player->ThrowEndSphere->SetWorldLocation(Paths[i].Location);
+
+			NoiseDisplayer->SetActorLocation(Paths[i].Location);
 		}
 	}
 }
 
+// Deprecated 
 void AWeaponThrowBase::OnHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp,
 	FVector NormalImpulse, const FHitResult& Hit)
 {
-	UE_LOG(LogTemp, Warning, TEXT("ON HIT ON HIT ON HIT ON HIT"));
-
-	// TODO: Change loudness to WeaponLoudness in weapon base class
-	// TODO: Use Controller variable instead of PlayerController maybe
-
 	if (bHit) return;
 	bHit = true;
 
-	if (AttackSound)
-	{
-		AttackSound->Play();
-		UE_LOG(LogTemp, Warning, TEXT("ATTACKSOUND ON"));
+	UE_LOG(LogTemp, Warning, TEXT("ON HIT ON HIT ON HIT ON HIT"));
 
-	}
-	else
-		UE_LOG(LogTemp, Warning, TEXT("ATTACKSOUND OFF"));
+
+	if (AttackSound)
+		AttackSound->Play();
 	
 	if (!Player) return;
 	AZombiePlayerController* PlayerController = Cast<AZombiePlayerController>(Player->Controller);
 	if(!PlayerController) return;
 
 	PlayerController->OnNoiseDelegate.Broadcast(ThrowLoudness, ThrowingMesh->GetComponentLocation(), ThrowLoudnessRange);
+}
+
+void AWeaponThrowBase::ChaosBreakHandler(const FChaosBreakEvent& BreakEvent)
+{
+	if (bHit) return;
+	bHit = true;
+
+	//DrawDebugSphere(GetWorld(), BreakEvent.Location, 10, 16, FColor::Red, true, 3.0f);
+	
+	UE_LOG(LogTemp, Warning, TEXT("CHAOS BREAK HANDLER"));
+
+	if (AttackSound)
+		AttackSound->Play();
+
+	MakeWeaponNoise(BreakEvent.Location);
+
+	NoiseDisplayer->SetActorHiddenInGame(false);
+	NoiseDisplayer->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	NoiseDisplayer->SetActorLocation(BreakEvent.Location);
+
+	GetWorldTimerManager().SetTimer(NoiseDisplayTimer,
+								FTimerDelegate::CreateUObject(this, &AWeaponThrowBase::UpdateNoiseSphereAlpha, NoiseDisplayer),
+								GetWorld()->GetDeltaSeconds(), true);
+
+	//DrawDebugSphere(GetWorld(), BreakEvent.Location, WeaponLoudnessRange, 32, FColor::Blue, true, 3.0f);
 }
 
 

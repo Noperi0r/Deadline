@@ -11,18 +11,19 @@ void UAnimNotifyState_EndExecute::NotifyBegin(USkeletalMeshComponent* MeshComp, 
 	Super::NotifyBegin(MeshComp, Animation, TotalDuration, EventReference);
 	Player = Cast<AZombiePlayer>(MeshComp->GetOwner());
 	if (!Player) return;
-	
-	PrevCamRotation = Player->Camera->GetComponentRotation();
 	Player->bOnExecute = false;
-	Player->Camera->bUsePawnControlRotation = true;
-	Player->Camera->SetWorldRotation(PrevCamRotation);
 }
 
 void UAnimNotifyState_EndExecute::NotifyTick(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, float FrameDeltaTime, const FAnimNotifyEventReference& EventReference)
 {
+	Super::NotifyTick(MeshComp, Animation, FrameDeltaTime, EventReference);
+	if(!Player) return;
+
+	
 }
 
 void UAnimNotifyState_EndExecute::NotifyEnd(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference)
 {
 	Super::NotifyEnd(MeshComp, Animation, EventReference);
+	if(!Player) return;
 }

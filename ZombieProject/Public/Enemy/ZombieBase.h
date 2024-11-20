@@ -56,6 +56,6 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void Turn(FVector NoiseLoc);
 
-	UPROPERTY(BlueprintReadWrite)
+	UPROPERTY(BlueprintReadWrite,EditAnywhere,Category = "Setting")
 	int32 QTECount;
 };

@@ -1,7 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Player\ZombiePlayerAnimInstance.h"
-//#include "ZombiePlayer.h"
+#include "Player\ZombiePlayer.h"
 #include "Animation\AnimInstance.h"
 #include "GameFramework\Pawn.h"
 
@@ -27,3 +27,15 @@
 //	}
 //}
 
+void UZombiePlayerAnimInstance::NativeBeginPlay()
+{
+	Player = Cast<AZombiePlayer>(TryGetPawnOwner());
+	checkf(Player, TEXT("NO PLAYER FOUND IN ANIMINSTANCE INITIALIZATION"));
+	
+	OnAssinationEnded.BindUFunction(this, FName("AssasinationEndHandler"));
+}
+
+void UZombiePlayerAnimInstance::AssasinationEndHandler()
+{
+	Player->PutKnifeOff();
+}

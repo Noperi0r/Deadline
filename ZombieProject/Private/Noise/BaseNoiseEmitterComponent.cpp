@@ -64,22 +64,17 @@ void UBaseNoiseEmitterComponent::MakeEnvironmentNoise_Implementation(APawn* Nois
 	}
 	else
 	{
-		if(this->InstigatorPawn.IsValid())
-			TempPawn = Cast<APawn>(this->InstigatorPawn);
-		else
-		{
-			//Spawn a Temporal Noise Emitter Pawn
-			auto tempPawn = GetWorld()->SpawnActor<ATemporalNoiseEmitterPawn>(ATemporalNoiseEmitterPawn::StaticClass(), NoiseLocation, FRotator::ZeroRotator);
-			tempPawn->SetLifeSpan(1.0f);
-			TempPawn = tempPawn;
-		}
+		//Spawn a Temporal Noise Emitter Pawn
+		auto tempPawn = GetWorld()->SpawnActor<ATemporalNoiseEmitterPawn>(ATemporalNoiseEmitterPawn::StaticClass(), NoiseLocation, FRotator::ZeroRotator);
+		tempPawn->SetLifeSpan(1.0f);
+		TempPawn = tempPawn;
 	}
 	check(TempPawn);
 
 	//debug log
 	FString b = TempPawn->GetName();
 
-	UE_LOG(LogTemp, Display, TEXT("Instigator Name : %s"), *b);
+	// UE_LOG(LogTemp, Display, TEXT("Instigator Name : %s"), *b);
 
 	int LoudnessInt = FMath::Floor(Loudness);
 	FString LoudnessString = FString::FromInt(LoudnessInt);

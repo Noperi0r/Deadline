@@ -60,6 +60,12 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Components", meta = (AllowProtectedAccess = "true"))
 	EWeaponTag ItemTag;
 
+	UPROPERTY(BlueprintReadOnly, Category = "Noise", meta = (AllowProtectedAccess = true))
+	class UBaseNoiseEmitterComponent* NoiseEmitter;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise", meta = (AllowProtectedAccess = true))
+	bool bDrawNoiseDebug;
+
 public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Components")
 	int32 ItemCode;
@@ -67,10 +73,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Components")
 	float Damage;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Components")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Noise")
 	float WeaponLoudness;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Components")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Noise")
 	float WeaponLoudnessRange; 
 
 	UPROPERTY(VisibleDefaultsOnly, BlueprintReadOnly)
@@ -117,6 +123,9 @@ public:
 	UFUNCTION()
 	virtual void ConvertPlayerController() PURE_VIRTUAL(AWeapon::ConvertPlayerController, return;);
 
+	UFUNCTION()
+	virtual void MakeWeaponNoise(const FVector& Location) PURE_VIRTUAL(AWeapon::MakeWeaponNoise, return;);
+
 public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Animation")
 	UAnimMontage* Montage_BringWeapon;
@@ -133,5 +142,7 @@ public:
 protected:
 	UFUNCTION()
 	virtual void OnAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted) PURE_VIRTUAL(AWeapon::OnAttackMontageEnded, return;);
+
+
 
 };

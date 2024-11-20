@@ -1,7 +1,6 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 #include "Player\ZombiePlayerController.h"
 
-#include "AsyncTreeDifferences.h"
 #include "Player\ZombiePlayer.h"
 #include "Player\ZombiePlayerAnimInstance.h"
 #include "Weapon\WeaponThrowBase.h"
@@ -9,6 +8,7 @@
 #include "Blueprint/UserWidget.h"
 #include "Interaction/InteractableInterface.h"
 #include "InventoryComponent.h"
+#include "Player/GUI/PlayerDeadUi.h"
 
 #define D(X,T) GEngine->AddOnScreenDebugMessage(-1, T, FColor::Red, FString::Printf(TEXT(X))); // For debugging, X muse be const FString
 #define DI(I,T) GEngine->AddOnScreenDebugMessage(-1, T, FColor::Red, FString::Printf(TEXT("%d"),I));
@@ -39,6 +39,18 @@ void AZombiePlayerController::BeginPlay() {
 	{
 		check(0 && "HUDWidget does not implement IInteractionUI");
 	}
+
+	DeadWidget = CreateWidget(this, DeadWidgetClass);
+
+	if (!DeadWidget->IsInViewport()) {
+		DeadWidget->AddToViewport();
+	}
+	DeadWidget->SetVisibility(ESlateVisibility::Hidden);
+
+	if(!DeadWidget->GetClass()->ImplementsInterface(UPlayerDeadUi::StaticClass()))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("DeadWidget does not implement IPlayerDeadUi"));
+	}
 }
 
 void AZombiePlayerController::Tick(float DeltaTime)
@@ -58,6 +70,10 @@ void AZombiePlayerController::Tick(float DeltaTime)
 			EInteractionType NameInteractWith = IInteractable->Execute_GetInteractTag(ZombiePlayer->TracedActor);
 			auto isInterctable = IInteractable->Execute_CanInteract(ZombiePlayer->TracedActor, ZombiePlayer);
 			InteractionUI.GetInterface()->Execute_UpdateUI(InteractionUI.GetObject(), NameInteractWith, isInterctable);
+		}
+		else if(ZombiePlayer->bCanExecute)
+		{
+			InteractionUI.GetInterface()->Execute_UpdateUI(InteractionUI.GetObject(), EInteractionType::Assassinate, true);	
 		}
 		else
 		{
@@ -108,7 +124,16 @@ void AZombiePlayerController::SetupInputComponent() {
 	* Bind player parkour
 	*/
 	PEnhancedInput->BindAction(InputActions->InputParkour, ETriggerEvent::Triggered, this, &AZombiePlayerController::Parkour);
-} 
+}
+
+void AZombiePlayerController::OnPossess(APawn* PawnToPossess)
+{
+	Super::OnPossess(PawnToPossess);
+
+	ZombiePlayer = Cast<AZombiePlayer>(PawnToPossess);
+	check(ZombiePlayer);
+}
+
 
 void AZombiePlayerController::Idle()
 {
@@ -220,26 +245,6 @@ void AZombiePlayerController::Look(const FInputActionValue& Value) {
 	//LookValue.X = FMath::Clamp(LookValue.X, -MaxSense, MaxSense);
 	//LookValue.Y = FMath::Clamp(LookValue.Y, -MaxSense, MaxSense);
 	
-	//UE_LOG(LogTemp, Warning, TEXT("LookValue %f %f"), LookValue.X, LookValue.Y);
-	//FTimerHandle XTimer;
-	//GetWorld()->GetTimerManager().SetTimer(XTimer, [&]()
-	//{
-	//	if (LookValue.X != 0.f)
-	//	{
-	//		ZombiePlayer->AddControllerYawInput(LookValue.X * ZombiePlayer->CameraSensitivity);
-	//	}
-	//	GetWorld()->GetTimerManager().ClearTimer(XTimer);
-	//}, 0.01f, false);
-
-	//FTimerHandle YTimer;
-	//GetWorld()->GetTimerManager().SetTimer(YTimer, [&]()
-	//	{
-	//		if (LookValue.Y != 0.f)
-	//		{
-	//			ZombiePlayer->AddControllerPitchInput(-LookValue.Y * ZombiePlayer->CameraSensitivity);
-	//		}
-	//		GetWorld()->GetTimerManager().ClearTimer(YTimer);
-	//	}, 0.01f, false);
 	if (LookValue.X != 0.f)
 	{
 		ZombiePlayer->AddControllerYawInput(LookValue.X * ZombiePlayer->CameraSensitivity);
@@ -250,7 +255,6 @@ void AZombiePlayerController::Look(const FInputActionValue& Value) {
 	{
 		ZombiePlayer->AddControllerPitchInput(-LookValue.Y * ZombiePlayer->CameraSensitivity);
 	}
-	//ZombiePlayer->SetActorRotation(ZombiePlayer->Camera->GetComponentQuat());
 	
 	// Set Timer to get mesh follow camera rotation
 	//if (GetWorld()->GetTimerManager().GetTimerRemaining(ZombiePlayer->FollowRotationTimer) <= 0) {
@@ -270,9 +274,7 @@ void AZombiePlayerController::DoCrouch_Implementation() {
 
 void AZombiePlayerController::OnOffFlashlight_Implementation() {
 	if (!ZombiePlayer->CanAct()) return;
-	/*UE_LOG(LogTemp, Warning, TEXT("On Off Flash Light"));
-	if (const float LightIntensity = ZombiePlayer->Flashlight->Intensity > 0) ZombiePlayer->Flashlight->SetIntensity(0);
-	else ZombiePlayer->Flashlight->SetIntensity(ZombiePlayer->FlashlightIntensity);*/
+	//UE_LOG(LogTemp, Warning, TEXT("On Off Flash Light"));
 }
 
 void AZombiePlayerController::Kick()
@@ -346,6 +348,8 @@ void AZombiePlayerController::Parkour() {
 	if(ZombiePlayer->bDrawParkourDebug){
 		DebugTraceType = EDrawDebugTrace::ForDuration;
 	}
+
+	ZombiePlayer->ParkourType = EParkourType::None;
 	
 	// Get a Player Height by line tracing
 	float PlayerHeight = 0;
@@ -360,15 +364,6 @@ void AZombiePlayerController::Parkour() {
 	ZombiePlayer->ParkourEndLocation = FVector(0,0,20000);
 	
 	float ParkourHeight = 0, ParkourWidth = 0;
-
-	// 0: Vaulting, 1: Climbing
-	enum EParkourType
-	{
-		Vaulting,
-		Climbing,
-		None,
-	};
-	EParkourType ParkourType = None;
 	
 	bool bHitStartRay = false;
 	bool bHitMiddleRay = false ;
@@ -436,6 +431,10 @@ void AZombiePlayerController::Parkour() {
 	
 	bCanParkour = (bHitStartRay && bHitMiddleRay);
 
+	int Vaulting = static_cast<int>(EParkourType::Vaulting);
+	int Climbing = static_cast<int>(EParkourType::Climbing);
+	int None = static_cast<int>(EParkourType::None);
+
 	// Calculate ParkourHeight
 	if(ZombiePlayer->ParkourStartLocation.Z > ZombiePlayer->Camera->GetComponentLocation().Z)
 	{
@@ -446,7 +445,7 @@ void AZombiePlayerController::Parkour() {
 		ParkourHeight = PlayerHeight - (ZombiePlayer->Camera->GetComponentLocation().Z - ZombiePlayer->ParkourStartLocation.Z);
 	}
 	
-	if(ZombiePlayer->MaxParkourHeights.Num() < EParkourType::None)
+	if(ZombiePlayer->MaxParkourHeights.Num() < None)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Max Parkour Heights num is less than EParkourType size"));
 		return;
@@ -455,31 +454,34 @@ void AZombiePlayerController::Parkour() {
 	if(ZombiePlayer->MaxParkourHeights[Vaulting] <= ParkourHeight && ParkourHeight <= ZombiePlayer->MaxParkourHeights[Climbing])
 	{
 		bCanParkour = true;
-		ParkourType = Climbing;
+		ZombiePlayer->ParkourType = EParkourType::Climbing;
 	}
 	else if (UKismetMathLibrary::InRange_FloatFloat(ZombiePlayer->ParkourEndLocation.Z,
 			ZombiePlayer->GetMesh()->GetComponentLocation().Z - ZombiePlayer->MaxParkourHeights[Vaulting],
 			ZombiePlayer->GetMesh()->GetComponentLocation().Z + ZombiePlayer->MaxParkourHeights[Vaulting]) &&
-			ZombiePlayer->MaxParkourHeights[Vaulting] >= ParkourHeight)
+			ZombiePlayer->MaxParkourHeights[Vaulting] >= ParkourHeight && ZombiePlayer->ParkourMiddleLocation.Z > ZombiePlayer->ParkourEndLocation.Z)
 	{
-		bCanParkour = true;
-		ParkourType = Vaulting;
+		ZombiePlayer->ParkourType = EParkourType::Vaulting;
 	}
 
-	if (!bCanParkour || ParkourType == None) return;
+	// Check Player Camera relative Pitch is between 40 ~ 80
+
+	if (!bCanParkour || ZombiePlayer->ParkourType == EParkourType::None) return;
+
+	int ParkourType = static_cast<int>(ZombiePlayer->ParkourType);
 	
-	UE_LOG(LogTemp, Warning, TEXT("Player Start Location: %f, %f, %f"), PlayerStartLocation.X, PlayerStartLocation.Y, PlayerStartLocation.Z);
-	UE_LOG(LogTemp, Warning, TEXT("Parkour Height, Width: %f, %f"), ParkourHeight, ParkourWidth);
-	UE_LOG(LogTemp, Warning, TEXT("Max Height, WIdth: %f, %f"), ZombiePlayer->MaxParkourHeights[ParkourType], ZombiePlayer->MaxParkourWidth);
+	//UE_LOG(LogTemp, Warning, TEXT("Player Start Location: %f, %f, %f"), PlayerStartLocation.X, PlayerStartLocation.Y, PlayerStartLocation.Z);
+	//UE_LOG(LogTemp, Warning, TEXT("Parkour Height, Width: %f, %f"), ParkourHeight, ParkourWidth);
+	//UE_LOG(LogTemp, Warning, TEXT("Max Height, WIdth: %f, %f"), ZombiePlayer->MaxParkourHeights[ParkourType], ZombiePlayer->MaxParkourWidth);
 
 	FVector PlayerParkourStartLocation = ZombiePlayer->ParkourStartLocation;
 	PlayerParkourStartLocation.X -= UKismetMathLibrary::GetForwardVector(ZombiePlayer->Camera->GetComponentRotation()).X * ZombiePlayer->ParkourDistance;
 	PlayerParkourStartLocation.Y -= UKismetMathLibrary::GetForwardVector(ZombiePlayer->Camera->GetComponentRotation()).Y * ZombiePlayer->ParkourDistance;
 	ZombiePlayer->SetActorLocation(PlayerParkourStartLocation);
 	
-	DrawDebugSphere(GetWorld(),ZombiePlayer->ParkourStartLocation,10,12,FColor::Magenta,false,10.0f);
-	DrawDebugSphere(GetWorld(),ZombiePlayer->ParkourMiddleLocation,10,12,FColor::Yellow, false, 10.0f);
-	DrawDebugSphere(GetWorld(),ZombiePlayer->ParkourEndLocation,10,12,FColor::Emerald, false, 10.0f);
+	//DrawDebugSphere(GetWorld(),ZombiePlayer->ParkourStartLocation,10,12,FColor::Magenta,false,60.0f);
+	//DrawDebugSphere(GetWorld(),ZombiePlayer->ParkourMiddleLocation,10,12,FColor::Yellow, false, 60.0f);
+	//DrawDebugSphere(GetWorld(),ZombiePlayer->ParkourEndLocation,10,12,FColor::Emerald, false, 60.0f);
 	ZombiePlayer->MotionWarping->AddOrUpdateWarpTargetFromLocation("ParkourStart",ZombiePlayer->ParkourStartLocation);
 	ZombiePlayer->MotionWarping->AddOrUpdateWarpTargetFromLocation("ParkourMiddle",ZombiePlayer->ParkourMiddleLocation);
 	ZombiePlayer->MotionWarping->AddOrUpdateWarpTargetFromLocation("ParkourEnd",ZombiePlayer->ParkourEndLocation);
@@ -499,6 +501,8 @@ void AZombiePlayerController::Parkour() {
 void AZombiePlayerController::PutWeapon(const FInputActionValue& Value)
 {
 	const FVector SwapValue = Value.Get<FVector>();
+
+	//if (ZombiePlayer->CurrentPlayerMode == EPlayerMode::None) return;
 
 	if (!ZombiePlayer->bCannotAction && !ZombiePlayer->bDoingAttack)
 	{

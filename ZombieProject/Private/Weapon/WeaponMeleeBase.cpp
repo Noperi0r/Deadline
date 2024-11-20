@@ -9,6 +9,7 @@
 #include "Enemy\ZombieBase.h"
 #include "Player\ZombiePlayerController.h"
 #include "Components\AudioComponent.h"
+#include "DrawDebugHelpers.h"
 
 AWeaponMeleeBase::AWeaponMeleeBase() 
 {
@@ -53,12 +54,14 @@ void AWeaponMeleeBase::Attack()
 	if (!Player) return;
 
 	UE_LOG(LogTemp, Warning, TEXT("SwingCount: %d"), Player->SwingCount);
+
+	Player->PlayerAnimInstance->AttackEndDelegate.Unbind();
+
 	switch (Player->SwingCount)
 	{
 		case 1:
 			Player->PlayerAnimInstance->Montage_Play(Montage_Attack);
 
-			Player->PlayerAnimInstance->AttackEndDelegate.Unbind();
 			Player->PlayerAnimInstance->AttackEndDelegate.BindUFunction(this, FName("OnAttackMontageEnded"));
 			Player->PlayerAnimInstance->Montage_SetEndDelegate(Player->PlayerAnimInstance->AttackEndDelegate, Montage_Attack);
 			break;
@@ -66,7 +69,6 @@ void AWeaponMeleeBase::Attack()
 		case 2:
 			Player->PlayerAnimInstance->Montage_Play(Montage_Attack2);
 
-			Player->PlayerAnimInstance->AttackEndDelegate.Unbind();
 			Player->PlayerAnimInstance->AttackEndDelegate.BindUFunction(this, FName("OnAttackMontageEnded"));
 			Player->PlayerAnimInstance->Montage_SetEndDelegate(Player->PlayerAnimInstance->AttackEndDelegate, Montage_Attack2);
 			break;
@@ -74,7 +76,6 @@ void AWeaponMeleeBase::Attack()
 		case 3:
 			Player->PlayerAnimInstance->Montage_Play(Montage_Attack3);
 
-			Player->PlayerAnimInstance->AttackEndDelegate.Unbind();
 			Player->PlayerAnimInstance->AttackEndDelegate.BindUFunction(this, FName("OnAttackMontageEnded"));
 			Player->PlayerAnimInstance->Montage_SetEndDelegate(Player->PlayerAnimInstance->AttackEndDelegate, Montage_Attack3);
 			break;
@@ -82,14 +83,15 @@ void AWeaponMeleeBase::Attack()
 		case 4:
 			Player->PlayerAnimInstance->Montage_Play(Montage_Attack4);
 
-			Player->PlayerAnimInstance->AttackEndDelegate.Unbind();
 			Player->PlayerAnimInstance->AttackEndDelegate.BindUFunction(this, FName("OnAttackMontageEnded"));
 			Player->PlayerAnimInstance->Montage_SetEndDelegate(Player->PlayerAnimInstance->AttackEndDelegate, Montage_Attack4);
 			break;
 
 	}
-
+		
 	if (Player->SwingCount >= MaxAttackNumber) Player->SwingCount = 0;
+
+	MakeWeaponNoise(Player->GetActorLocation());
 }
 
 void AWeaponMeleeBase::SubAction()
@@ -110,26 +112,17 @@ void AWeaponMeleeBase::SubAction_Internal_Implementation()
 		AZombiePlayerController* PlayerController = Cast<AZombiePlayerController>(Player->Controller);
 		PlayerController->DoCrouch();
 	}
-
-	const AZombieBase* ExecutedZombie = Cast<AZombieBase>(Player->TracedActor);
-	const FVector TargetLocation =  ExecutedZombie->GetMesh()->GetBoneLocation("head",EBoneSpaces::WorldSpace);
-	//FVector PlayerRayLocation = Player->Camera->GetComponentLocation();
-
-	///const FVector PlayerForwardVector = UKismetMathLibrary::GetForwardVector(Player->GetActorRotation());
-	//const FRotator RotationToForward = UKismetMathLibrary::FindLookAtRotation(PlayerRayLocation, PlayerRayLocation+PlayerForwardVector*Player->ExecutableDistance);
-	//Player->SetActorRotation(RotationToForward);
-	//const FRotator RotationToTarget = UKismetMathLibrary::FindLookAtRotation(PlayerRayLocation, TargetLocation);
-	//Player->SetActorRotation(RotationToTarget);
 	
-	Player->Camera->bUsePawnControlRotation = false;
 	// Do Execution
-	FVector ExecutionLocation = TargetLocation - UKismetMathLibrary::GetForwardVector(ExecutedZombie->GetActorRotation()) * Player->ExecutableDistance;
-	ExecutionLocation.Z = Player->GetActorLocation().Z;
-	Player->MotionWarping->AddOrUpdateWarpTargetFromLocation("ExecutionLocation",ExecutionLocation);
 	ExecuteMontageIdx = FMath::RandRange(0, Player->ExecuteMontages.Num() - 1);
 	Player->PlayerAnimInstance->Montage_Play(Player->ExecuteMontages[ExecuteMontageIdx]);
 	Player->RunCamShake(EPlayerCamShake::Execute);
-	D("Weapon Melee SubAction invoked", 1.0f);
+
+	// Animation
+	Player->PlayerAnimInstance->Montage_SetEndDelegate(Player->PlayerAnimInstance->OnAssinationEnded, Player->ExecuteMontages[ExecuteMontageIdx]);
+
+	// Put Knife
+	Player->PutKnifeOn();
 }
 
 bool AWeaponMeleeBase::CanAttack()
@@ -140,26 +133,43 @@ bool AWeaponMeleeBase::CanAttack()
 void AWeaponMeleeBase::PerformTrace()
 {
 	bool bResult;
-	FHitResult HitResult;
+	//FHitResult HitResult;
+	TArray<FHitResult> HitResults;
 	FVector ColStart = WeaponMesh->GetSocketLocation("meleecolstart");
 	FRotator ColRotation = WeaponMesh->GetSocketRotation("meleecolstart");
 	FVector ColEnd = WeaponMesh->GetSocketLocation("meleecolend");
 
-	bResult = UKismetSystemLibrary::BoxTraceSingle(WeaponMesh, ColStart, ColEnd, FVector(10.f, 10.f, 10.f), ColRotation,
-		UEngineTypes::ConvertToTraceType(ECollisionChannel::ECC_Pawn), false, {}, EDrawDebugTrace::None, HitResult, true, FLinearColor::Red, FLinearColor::Green, 2.0f);
+	bResult = UKismetSystemLibrary::BoxTraceMulti(WeaponMesh, ColStart, ColEnd, FVector(10.f, 10.f, 10.f), ColRotation,
+		UEngineTypes::ConvertToTraceType(ECollisionChannel::ECC_Pawn), false, {}, EDrawDebugTrace::None, HitResults, true, FLinearColor::Red, FLinearColor::Green, 2.0f);
 
 	if (bResult)
 	{
-		class AZombieBase* HitZombie = Cast<AZombieBase>(HitResult.GetActor());
-		if (!HitZombie) return;
+		for (FHitResult Result : HitResults)
+		{
+			class AZombieBase* HitZombie = Cast<AZombieBase>(Result.GetActor());
+			if (!HitZombie) continue;
 
-		if (Player->OnWeaponHit.IsBound()) Player->OnWeaponHit.Broadcast();
+			if (Player->OnWeaponHit.IsBound()) Player->OnWeaponHit.Broadcast();
 
-		if(AttackSound) AttackSound->Play();
+			if (AttackSound) AttackSound->Play();
+
+			Player->RunCamShake(EPlayerCamShake::BatAttack);
+			UGameplayStatics::ApplyDamage(HitZombie, Damage, Player->GetController(), Player, nullptr);
+			bCollisionOn = false;
+			
+			break;
+		}
 		
-		Player->RunCamShake(EPlayerCamShake::BatAttack);
-		UGameplayStatics::ApplyDamage(HitZombie, Damage, Player->GetController(), Player, nullptr);
-		bCollisionOn = false;
+	//	class AZombieBase* HitZombie = Cast<AZombieBase>(HitResult.GetActor());
+	//	if (!HitZombie) return;
+
+	//	if (Player->OnWeaponHit.IsBound()) Player->OnWeaponHit.Broadcast();
+
+	//	if(AttackSound) AttackSound->Play();
+	//	
+	//	Player->RunCamShake(EPlayerCamShake::BatAttack);
+	//	UGameplayStatics::ApplyDamage(HitZombie, Damage, Player->GetController(), Player, nullptr);
+	//	bCollisionOn = false;
 	}
 }
 
@@ -169,8 +179,22 @@ void AWeaponMeleeBase::ConvertPlayerController()
 	return;
 }
 
+void AWeaponMeleeBase::MakeWeaponNoise(const FVector& Location)
+{
+	if (!Player) return;
+	
+	NoiseEmitter->Execute_MakeEnvironmentNoise(NoiseEmitter, Player, WeaponLoudness, Location, WeaponLoudnessRange);
+	//AZombiePlayerController* Control = Cast<AZombiePlayerController>(Player->GetController());
+	//Control->OnNoiseDelegate.Broadcast(WeaponLoudness, Player->GetActorLocation(), WeaponLoudnessRange);
+
+	if (bDrawNoiseDebug)
+		DrawDebugSphere(GetWorld(), Player->GetActorLocation(), WeaponLoudnessRange, 32, FColor::Blue, false, 1.0f);
+}
+
 void AWeaponMeleeBase::OnAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 {
+	Player->PlayerAnimInstance->AttackEndDelegate.Unbind();
+
 	if (bInterrupted)	return;
 
 	if (Player)
@@ -178,7 +202,6 @@ void AWeaponMeleeBase::OnAttackMontageEnded(UAnimMontage* Montage, bool bInterru
 		Player->bCannotAction = false;
 
 		Player->SwingCount = 0;
-		Player->PlayerAnimInstance->AttackEndDelegate.Unbind();
 	}
 }
 

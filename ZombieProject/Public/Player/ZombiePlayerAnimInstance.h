@@ -24,13 +24,20 @@ protected:
 	bool bIsAir;
 
 public:
-	//virtual void NativeInitializeAnimation() override;
+	virtual void NativeBeginPlay() override;
 	
 	//UFUNCTION(BlueprintCallable, Category = "Update Properties")
 	//void UpdateProperties();
+private:
+	UFUNCTION()
+	void AssasinationEndHandler();
 
 public:
+	/** Weapon Interactions */
 	FOnMontageEnded AttackEndDelegate;
 	FOnMontageEnded DisarmEndDelegate;
 	FOnMontageEnded WeaponActionEndDelegate;
+
+	/** Assasination interaction */
+	FOnMontageEnded OnAssinationEnded;
 };

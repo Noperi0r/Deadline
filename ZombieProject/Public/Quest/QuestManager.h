@@ -43,6 +43,4 @@ public:
 
 	UFUNCTION(BlueprintCallable)
 	bool CanAcceptQuestById(FGuid QuestId);
-
-
 };
